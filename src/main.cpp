@@ -5,6 +5,13 @@
 #include <SFML/System/Vector2.hpp>
 #include <iostream>
 
+struct Ant {
+  sf::Vector2f position;
+  float velocity;
+  float rotation = 0;
+  int stepCounter = 0;
+};
+
 int main() {
   uint32_t windowWidth = 1920;
   uint32_t windowHeight = 1080;
@@ -20,10 +27,16 @@ int main() {
 
   sf::Sprite antSprite;
   antSprite.setTexture(antTexture);
-  int antStepCount = 0;
 
   float antCircleDegree = 0;
   auto antBasePosition = sf::Vector2f(1000, 500);
+
+  std::vector<Ant> ants(100);
+  for (auto &ant : ants) {
+    ant.stepCounter = std::rand() % 63;
+    ant.position = sf::Vector2f(std::rand() % 1900, std::rand() % 1000);
+    ant.rotation = std::rand() % 360;
+  }
 
   while (window.isOpen()) {
     for (auto event = sf::Event{}; window.pollEvent(event);) {
@@ -47,29 +60,37 @@ int main() {
       }
     }
 
-    // Draw ants
-    int left = (antStepCount % 8) * 202;
-    int top = (antStepCount / 8) * 248;
-    antSprite.setTextureRect(sf::IntRect(left, top, 202, 248));
-    antSprite.setPosition(sf::Vector2f(1000, 500));
-    antSprite.setScale(0.5f, 0.5f);
-    antSprite.setOrigin(sf::Vector2f(101, 124));
+    for (auto &ant : ants) {
+      ant.velocity += ((std::rand() % 11) - 5) / 30.f;
+      ant.velocity = std::max(ant.velocity, 0.f);
+      ant.rotation += (std::rand() % 361 - 180) / 50.0f;
 
-    // Walk in a circle.
-    antCircleDegree -= 0.3;
-    sf::Transform antTransform;
-    // antTransform.translate(antCircleDegree, 0);
-    antTransform.rotate(antCircleDegree);
-    antSprite.setPosition(sf::Vector2f(1000, 500) +
-                          antTransform.transformPoint(sf::Vector2f(100, 0)));
-    antSprite.setRotation(antCircleDegree);
+      sf::Transform antTransform;
 
-    window.draw(antSprite);
+      antTransform.rotate(ant.rotation);
+      ant.position +=
+          antTransform.transformPoint(sf::Vector2f(0, -ant.velocity));
+      ant.stepCounter++;
+      if (ant.stepCounter == 62) {
+        ant.stepCounter = 0;
+      }
+
+      // Draw ants
+      int left = (ant.stepCounter % 8) * 202;
+      int top = (ant.stepCounter / 8) * 248;
+      antSprite.setTextureRect(sf::IntRect(left, top, 202, 248));
+      antSprite.setPosition(sf::Vector2f(1000, 500));
+      antSprite.setScale(0.5f, 0.5f);
+      antSprite.setOrigin(sf::Vector2f(101, 124));
+
+      // Walk in a circle.
+      // antTransform.translate(antCircleDegree, 0);
+      antTransform.rotate(antCircleDegree);
+      antSprite.setPosition(ant.position);
+      antSprite.setRotation(ant.rotation);
+      window.draw(antSprite);
+    }
 
     window.display();
-    antStepCount++;
-    if (antStepCount == 62) {
-      antStepCount = 0;
-    }
   }
 }
