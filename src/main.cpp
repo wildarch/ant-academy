@@ -11,19 +11,22 @@
 constexpr uint32_t windowWidth = 1600;
 constexpr uint32_t windowHeight = 900;
 
+static sf::Color hsv2rgb(double hue, double sat, double val);
+
 struct Ant {
   sf::Vector2f position;
   float velocity;
   float rotation = 0;
   int stepCounter = 0;
   sf::Vector2f nestPosition;
+  float hue;
 
   void updatePosition() {
     if (std::rand() % 5 == 0) {
-      velocity += ((std::rand() % 11) - 5) / 20.f;
+      velocity += ((std::rand() % 11) - 5) / 40.f;
     }
     velocity = std::max(velocity, 0.f);
-    velocity = std::min(velocity, 4.0f);
+    velocity = std::min(velocity, 2.0f);
     if (std::rand() % 20 == 0) {
       // Periodically sample a new rotation
       rotation += (std::rand() % 361 - 180) / 10.0f;
@@ -60,6 +63,7 @@ struct Ant {
     antSprite.setTextureRect(sf::IntRect(left, top, 202, 248));
     antSprite.setPosition(position);
     antSprite.setRotation(rotation);
+    antSprite.setColor(hsv2rgb(hue, 1, 255));
     window.draw(antSprite);
   }
 };
@@ -83,7 +87,7 @@ int main() {
 
   sf::Sprite antSprite;
   antSprite.setTexture(antTexture);
-  antSprite.setScale(0.5f, 0.5f);
+  antSprite.setScale(0.25f, 0.25f);
   antSprite.setOrigin(sf::Vector2f(101, 124));
 
   sf::Texture terrainTexture;
@@ -105,10 +109,11 @@ int main() {
 
   holeSprite.setPosition(nest.position);
 
-  nest.ants.emplace_back(Ant{
-      .position = nest.position,
-      .nestPosition = nest.position,
-  });
+  sf::Sprite foodSprite;
+  foodSprite.setTexture(terrainTexture);
+  foodSprite.setTextureRect(sf::IntRect(256, 544, 32, 24));
+  foodSprite.setScale(3.0, 3.0);
+  foodSprite.setOrigin(18, 16);
 
   sf::Clock antSpawnClock;
 
@@ -136,6 +141,9 @@ int main() {
 
     window.draw(holeSprite);
 
+    foodSprite.setPosition(sf::Vector2f(1500, 800));
+    window.draw(foodSprite);
+
     if (nest.ants.size() < nest.nest_size &&
         antSpawnClock.getElapsedTime().asSeconds() > 0.5) {
       // Add a new ant.
@@ -145,7 +153,7 @@ int main() {
           .rotation = float(std::rand() % 360),
           .stepCounter = std::rand() % 63,
           .nestPosition = nest.position,
-
+          .hue = float(std::rand() % 360),
       });
     }
 
@@ -157,4 +165,65 @@ int main() {
 
     window.display();
   }
+}
+
+// see:
+// https://stackoverflow.com/questions/3018313/algorithm-to-convert-rgb-to-hsv-and-hsv-to-rgb-in-range-0-255-for-both
+static sf::Color hsv2rgb(double hue, double sat, double val) {
+  double hh, p, q, t, ff;
+  long i;
+  sf::Color out;
+  out.a = 255;
+
+  if (sat <= 0.0) { // < is bogus, just shuts up warnings
+    out.r = val;
+    out.g = val;
+    out.b = val;
+    return out;
+  }
+  hh = hue;
+  if (hh >= 360.0)
+    hh = 0.0;
+  hh /= 60.0;
+  i = (long)hh;
+  ff = hh - i;
+  p = val * (1.0 - sat);
+  q = val * (1.0 - (sat * ff));
+  t = val * (1.0 - (sat * (1.0 - ff)));
+
+  switch (i) {
+  case 0:
+    out.r = val;
+    out.g = t;
+    out.b = p;
+    break;
+  case 1:
+    out.r = q;
+    out.g = val;
+    out.b = p;
+    break;
+  case 2:
+    out.r = p;
+    out.g = val;
+    out.b = t;
+    break;
+
+  case 3:
+    out.r = p;
+    out.g = q;
+    out.b = val;
+    break;
+  case 4:
+    out.r = t;
+    out.g = p;
+    out.b = val;
+    break;
+  case 5:
+  default:
+    out.r = val;
+    out.g = p;
+    out.b = q;
+    break;
+  }
+  return out;
 }
