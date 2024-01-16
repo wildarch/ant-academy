@@ -5,6 +5,7 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Transform.hpp>
 #include <SFML/System/Vector2.hpp>
+#include <cmath>
 #include <iostream>
 #include <math.h>
 
@@ -63,7 +64,7 @@ struct Ant {
     antSprite.setTextureRect(sf::IntRect(left, top, 202, 248));
     antSprite.setPosition(position);
     antSprite.setRotation(rotation);
-    antSprite.setColor(hsv2rgb(hue, 1, 255));
+    antSprite.setColor(hsv2rgb(hue, 1, 120));
     window.draw(antSprite);
   }
 };
@@ -73,6 +74,8 @@ struct Nest {
   std::vector<Ant> ants;
   int nest_size;
 };
+
+float length(sf::Vector2f v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
 int main() {
   auto window = sf::RenderWindow{{windowWidth, windowHeight}, "Ant Academy"};
@@ -141,7 +144,8 @@ int main() {
 
     window.draw(holeSprite);
 
-    foodSprite.setPosition(sf::Vector2f(1500, 800));
+    sf::Vector2f foodPosition(1500, 800);
+    foodSprite.setPosition(foodPosition);
     window.draw(foodSprite);
 
     if (nest.ants.size() < nest.nest_size &&
@@ -159,6 +163,10 @@ int main() {
 
     for (auto &ant : nest.ants) {
       ant.updatePosition();
+
+      auto foodDistance = length(foodPosition - ant.position);
+      ant.hue = foodDistance / 2000 * 360;
+
       ant.animateStep();
       ant.draw(window, antSprite);
     }
