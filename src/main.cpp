@@ -34,6 +34,7 @@ struct FoodSource {
 struct Environment {
     Nest nest;
     std::vector<FoodSource> food_sources;
+    float pheromones[windowWidth/4][windowHeight/4];
 };
 
 struct Ant {
@@ -52,7 +53,13 @@ struct Ant {
   /** \brief Execute ant behavior.
    *  \note  To be called on every simulation step.
    */
-  void update(const Environment& environment) {
+  void update(Environment& environment) {
+    // Deposit pheromones at the current position.
+    int gridX = (int)floor(position.x/4);
+    int gridY = (int)floor(position.y/4);
+    if (gridX >= 0 && gridX < windowWidth/4 && gridY >= 0 && gridY < windowHeight/4) {
+        environment.pheromones[gridX][gridY] += 2.0f;
+    }
     // Random movement while searching.
     if (state == State::SEARCHING) {
         hue = 100;
@@ -219,6 +226,23 @@ int main() {
     for (auto &food: environment.food_sources) {
         foodSprite.setPosition(food.position);
         window.draw(foodSprite);
+    }
+
+    // Evaporate & draw pheromones.
+    sf::CircleShape shape(10);
+    shape.setOrigin(5, 5);
+    for (int x = 0; x < windowWidth/4; x++) {
+        for (int y = 0; y < windowHeight/4; y++) {
+            auto& amount = environment.pheromones[x][y];
+            amount *= 0.996f; 
+            if (amount < 0.5f) {
+                amount = 0.0f;
+            } else {
+                shape.setPosition(x*4, y*4);
+                shape.setFillColor(sf::Color(180, 180, 180, amount*10));
+                window.draw(shape);
+            }
+        }
     }
 
     Nest& nest = environment.nest;
