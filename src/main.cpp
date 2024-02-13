@@ -14,6 +14,28 @@ constexpr uint32_t windowHeight = 900;
 
 static sf::Color hsv2rgb(double hue, double sat, double val);
 
+float length(sf::Vector2f v) {
+    return std::sqrt(v.x * v.x + v.y * v.y);
+}
+
+struct Ant;
+
+struct Nest {
+  sf::Vector2f position;
+  std::vector<Ant> ants;
+  int nest_size;
+};
+
+struct FoodSource {
+  sf::Vector2f position;
+  int amount_left; 
+};
+
+struct Environment {
+    Nest nest;
+    std::vector<FoodSource> food_sources;
+};
+
 struct Ant {
   sf::Vector2f position;
   float velocity;
@@ -22,16 +44,58 @@ struct Ant {
   sf::Vector2f nestPosition;
   float hue;
 
-  void updatePosition() {
-    if (std::rand() % 5 == 0) {
-      velocity += ((std::rand() % 11) - 5) / 40.f;
+  enum class State {
+    SEARCHING,
+    RETURNING,
+  } state;
+
+  /** \brief Execute ant behavior.
+   *  \note  To be called on every simulation step.
+   */
+  void update(const Environment& environment) {
+    // Random movement while searching.
+    if (state == State::SEARCHING) {
+        hue = 100;
+        // If position is very near food source, return.
+        for (auto food: environment.food_sources) {
+            auto foodDistance = length(food.position - position);
+            if (foodDistance < 80.0) {
+                std::cout << "At food source: " << foodDistance << "\n";
+                state = State::RETURNING;
+            }
+        }
+        
+        if (std::rand() % 5 == 0) {
+          velocity += ((std::rand() % 11) - 5) / 40.f;
+        }
+        velocity = std::max(velocity, 0.f);
+        velocity = std::min(velocity, 2.0f);
+        if (std::rand() % 20 == 0) {
+          // Periodically sample a new rotation
+          rotation += (std::rand() % 361 - 180) / 10.0f;
+        }
     }
-    velocity = std::max(velocity, 0.f);
-    velocity = std::min(velocity, 2.0f);
-    if (std::rand() % 20 == 0) {
-      // Periodically sample a new rotation
-      rotation += (std::rand() % 361 - 180) / 10.0f;
+    // Move in a straight line to the base
+    else if (state == State::RETURNING) {
+        hue = 0;
+        // If position is very near home, start searching.
+        auto nest_dist = length(environment.nest.position - position);
+        if (nest_dist < 80.0) {
+            state = State::SEARCHING;
+        }
+
+        if (std::rand() % 5 == 0) {
+          velocity += ((std::rand() % 11) - 5) / 40.f;
+        }
+        velocity = std::max(velocity, 0.f);
+        velocity = std::min(velocity, 1.0f);
+        if (std::rand() % 20 == 0) {
+          // Periodically sample a new rotation
+          sf::Vector2f diff = environment.nest.position - position;
+          rotation = 180* atan2(diff.x, -diff.y) / M_PI;
+        }
     }
+
 
     sf::Transform antTransform;
 
@@ -69,14 +133,6 @@ struct Ant {
   }
 };
 
-struct Nest {
-  sf::Vector2f position;
-  std::vector<Ant> ants;
-  int nest_size;
-};
-
-float length(sf::Vector2f v) { return std::sqrt(v.x * v.x + v.y * v.y); }
-
 int main() {
   auto window = sf::RenderWindow{{windowWidth, windowHeight}, "Ant Academy"};
   window.setFramerateLimit(144);
@@ -105,12 +161,28 @@ int main() {
   holeSprite.setScale(2.0, 2.0);
   holeSprite.setOrigin(40, 40);
 
-  Nest nest{
-      .position = sf::Vector2f(100, 100),
-      .nest_size = 100,
+  Environment environment{
+      .nest {
+          .position = sf::Vector2f(600, 400),
+          .nest_size = 100,
+      },
+      .food_sources = {
+          FoodSource{
+              .position = sf::Vector2f(1200, 800),
+          },
+          FoodSource{
+              .position = sf::Vector2f(50, 50),
+          },
+          FoodSource{
+              .position = sf::Vector2f(50, 800),
+          },
+          FoodSource{
+              .position = sf::Vector2f(1200, 50),
+          }
+      }
   };
 
-  holeSprite.setPosition(nest.position);
+  holeSprite.setPosition(environment.nest.position);
 
   sf::Sprite foodSprite;
   foodSprite.setTexture(terrainTexture);
@@ -144,10 +216,12 @@ int main() {
 
     window.draw(holeSprite);
 
-    sf::Vector2f foodPosition(1500, 800);
-    foodSprite.setPosition(foodPosition);
-    window.draw(foodSprite);
+    for (auto &food: environment.food_sources) {
+        foodSprite.setPosition(food.position);
+        window.draw(foodSprite);
+    }
 
+    Nest& nest = environment.nest;
     if (nest.ants.size() < nest.nest_size &&
         antSpawnClock.getElapsedTime().asSeconds() > 0.5) {
       // Add a new ant.
@@ -158,14 +232,12 @@ int main() {
           .stepCounter = std::rand() % 63,
           .nestPosition = nest.position,
           .hue = float(std::rand() % 360),
+          .state = Ant::State::SEARCHING,
       });
     }
 
     for (auto &ant : nest.ants) {
-      ant.updatePosition();
-
-      auto foodDistance = length(foodPosition - ant.position);
-      ant.hue = foodDistance / 2000 * 360;
+      ant.update(environment);
 
       ant.animateStep();
       ant.draw(window, antSprite);
