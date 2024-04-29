@@ -6,6 +6,7 @@
 #include <SFML/Graphics/Transform.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <math.h>
 
@@ -14,9 +15,7 @@ constexpr uint32_t windowHeight = 900;
 
 static sf::Color hsv2rgb(double hue, double sat, double val);
 
-float length(sf::Vector2f v) {
-    return std::sqrt(v.x * v.x + v.y * v.y);
-}
+float length(sf::Vector2f v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
 struct Ant;
 
@@ -28,13 +27,13 @@ struct Nest {
 
 struct FoodSource {
   sf::Vector2f position;
-  int amount_left; 
+  int amount_left;
 };
 
 struct Environment {
-    Nest nest;
-    std::vector<FoodSource> food_sources;
-    float pheromones[windowWidth/4][windowHeight/4];
+  Nest nest;
+  std::vector<FoodSource> food_sources;
+  float pheromones[windowWidth / 4][windowHeight / 4];
 };
 
 struct Ant {
@@ -53,56 +52,81 @@ struct Ant {
   /** \brief Execute ant behavior.
    *  \note  To be called on every simulation step.
    */
-  void update(Environment& environment) {
+  void update(Environment &environment) {
+    int gridX = (int)floor(position.x / 4);
+    int gridY = (int)floor(position.y / 4);
     // Deposit pheromones at the current position.
-    int gridX = (int)floor(position.x/4);
-    int gridY = (int)floor(position.y/4);
-    if (gridX >= 0 && gridX < windowWidth/4 && gridY >= 0 && gridY < windowHeight/4) {
-        environment.pheromones[gridX][gridY] += 2.0f;
+    if (gridX >= 0 && gridX < windowWidth / 4 && gridY >= 0 &&
+        gridY < windowHeight / 4) {
+      // environment.pheromones[gridX][gridY] += 2.0f;
     }
     // Random movement while searching.
     if (state == State::SEARCHING) {
-        hue = 100;
-        // If position is very near food source, return.
-        for (auto food: environment.food_sources) {
-            auto foodDistance = length(food.position - position);
-            if (foodDistance < 80.0) {
-                std::cout << "At food source: " << foodDistance << "\n";
-                state = State::RETURNING;
-            }
+      hue = 100;
+      // If position is very near food source, return.
+      for (auto food : environment.food_sources) {
+        auto foodDistance = length(food.position - position);
+        if (foodDistance < 80.0) {
+          state = State::RETURNING;
         }
-        
-        if (std::rand() % 5 == 0) {
-          velocity += ((std::rand() % 11) - 5) / 40.f;
+      }
+
+      if (std::rand() % 5 == 0) {
+        velocity += ((std::rand() % 11) - 5) / 40.f;
+      }
+      velocity = std::max(velocity, 0.f);
+      velocity = std::min(velocity, 2.0f);
+      if (std::rand() % 20 == 0) {
+        // Periodically sample a new rotation
+        rotation += (std::rand() % 361 - 180) / 10.0f;
+      }
+      // Change rotation based on percieved pheromones
+      // smell-distance, smell angle
+      // Get pheromones in left-front
+      // Get phermones in right-front
+
+      // Look around for pheromones
+      for (int x = -5; x <= 5; x++) {
+        for (int y = -5; y <= 5; y++) {
+          auto absX = gridX + x;
+          auto absY = gridY + y;
+          if (x == 0 && y == 0) {
+            continue;
+          }
+          if (absX >= 0 && absX < windowWidth / 4 && absY >= 0 &&
+              absY < windowHeight / 4 &&
+              environment.pheromones[absX][absY] > 0) {
+            std::cout << "Found pheromones at: " << absX << "," << absY << "\n";
+            // Desired rotation.
+            float desired_rotation = 180 * atan2(x, -y) / M_PI;
+            float diff = std::clamp(fmodf(desired_rotation - rotation, 360.0f),
+                                    -5.0f, 5.0f);
+            rotation += diff;
+            std::cout << "diff: " << diff << "\n";
+          }
         }
-        velocity = std::max(velocity, 0.f);
-        velocity = std::min(velocity, 2.0f);
-        if (std::rand() % 20 == 0) {
-          // Periodically sample a new rotation
-          rotation += (std::rand() % 361 - 180) / 10.0f;
-        }
+      }
     }
     // Move in a straight line to the base
     else if (state == State::RETURNING) {
-        hue = 0;
-        // If position is very near home, start searching.
-        auto nest_dist = length(environment.nest.position - position);
-        if (nest_dist < 80.0) {
-            state = State::SEARCHING;
-        }
+      hue = 0;
+      // If position is very near home, start searching.
+      auto nest_dist = length(environment.nest.position - position);
+      if (nest_dist < 80.0) {
+        state = State::SEARCHING;
+      }
 
-        if (std::rand() % 5 == 0) {
-          velocity += ((std::rand() % 11) - 5) / 40.f;
-        }
-        velocity = std::max(velocity, 0.f);
-        velocity = std::min(velocity, 1.0f);
-        if (std::rand() % 20 == 0) {
-          // Periodically sample a new rotation
-          sf::Vector2f diff = environment.nest.position - position;
-          rotation = 180* atan2(diff.x, -diff.y) / M_PI;
-        }
+      if (std::rand() % 5 == 0) {
+        velocity += ((std::rand() % 11) - 5) / 40.f;
+      }
+      velocity = std::max(velocity, 0.f);
+      velocity = std::min(velocity, 1.0f);
+      if (std::rand() % 20 == 0) {
+        // Periodically sample a new rotation
+        sf::Vector2f diff = environment.nest.position - position;
+        rotation = 180 * atan2(diff.x, -diff.y) / M_PI;
+      }
     }
-
 
     sf::Transform antTransform;
 
@@ -169,25 +193,22 @@ int main() {
   holeSprite.setOrigin(40, 40);
 
   Environment environment{
-      .nest {
+      .nest{
           .position = sf::Vector2f(600, 400),
-          .nest_size = 100,
+          .nest_size = 1,
       },
-      .food_sources = {
-          FoodSource{
-              .position = sf::Vector2f(1200, 800),
-          },
-          FoodSource{
-              .position = sf::Vector2f(50, 50),
-          },
-          FoodSource{
-              .position = sf::Vector2f(50, 800),
-          },
-          FoodSource{
-              .position = sf::Vector2f(1200, 50),
-          }
-      }
-  };
+      .food_sources = {FoodSource{
+                           .position = sf::Vector2f(1200, 800),
+                       },
+                       FoodSource{
+                           .position = sf::Vector2f(50, 50),
+                       },
+                       FoodSource{
+                           .position = sf::Vector2f(50, 800),
+                       },
+                       FoodSource{
+                           .position = sf::Vector2f(1200, 50),
+                       }}};
 
   holeSprite.setPosition(environment.nest.position);
 
@@ -223,29 +244,40 @@ int main() {
 
     window.draw(holeSprite);
 
-    for (auto &food: environment.food_sources) {
-        foodSprite.setPosition(food.position);
-        window.draw(foodSprite);
+    for (auto &food : environment.food_sources) {
+      foodSprite.setPosition(food.position);
+      window.draw(foodSprite);
+    }
+
+    // HACK: set pheromones to a fixed value.
+    for (int x = 0; x < windowWidth / 4; x++) {
+      for (int y = 0; y < windowHeight / 4; y++) {
+        auto &amount = environment.pheromones[x][y];
+        // amount = 0;
+        if (y == 50) {
+          amount = 100;
+        }
+      }
     }
 
     // Evaporate & draw pheromones.
     sf::CircleShape shape(10);
     shape.setOrigin(5, 5);
-    for (int x = 0; x < windowWidth/4; x++) {
-        for (int y = 0; y < windowHeight/4; y++) {
-            auto& amount = environment.pheromones[x][y];
-            amount *= 0.996f; 
-            if (amount < 0.5f) {
-                amount = 0.0f;
-            } else {
-                shape.setPosition(x*4, y*4);
-                shape.setFillColor(sf::Color(180, 180, 180, amount*10));
-                window.draw(shape);
-            }
+    for (int x = 0; x < windowWidth / 4; x++) {
+      for (int y = 0; y < windowHeight / 4; y++) {
+        auto &amount = environment.pheromones[x][y];
+        amount *= 0.996f;
+        if (amount < 0.5f) {
+          amount = 0.0f;
+        } else {
+          shape.setPosition(x * 4, y * 4);
+          shape.setFillColor(sf::Color(180, 180, 180, amount * 10));
+          window.draw(shape);
         }
+      }
     }
 
-    Nest& nest = environment.nest;
+    Nest &nest = environment.nest;
     if (nest.ants.size() < nest.nest_size &&
         antSpawnClock.getElapsedTime().asSeconds() > 0.5) {
       // Add a new ant.
