@@ -99,7 +99,7 @@ struct Ant {
             std::cout << "Found pheromones at: " << absX << "," << absY << "\n";
             // Desired rotation.
             float desired_rotation = 180 * atan2(x, -y) / M_PI;
-            float diff = std::clamp(fmodf(desired_rotation - rotation, 360.0f),
+            float diff = std::clamp(fmodf(desired_rotation - rotation, 180.0f),
                                     -5.0f, 5.0f);
             rotation += diff;
             std::cout << "diff: " << diff << "\n";
