@@ -15,7 +15,16 @@ constexpr uint32_t windowHeight = 900;
 
 static sf::Color hsv2rgb(double hue, double sat, double val);
 
-float length(sf::Vector2f v) { return std::sqrt(v.x * v.x + v.y * v.y); }
+// Vector helper functions
+float inner(sf::Vector2f v, sf::Vector2f u) { return v.x * v.x + u.y * u.y; }
+float length(sf::Vector2f v) { return std::sqrt(inner(v, v)); }
+sf::Vector2f normalize(sf::Vector2f v) { return v / length(v); }
+// FIXME, this is broken
+float rotationDegrees(sf::Vector2f v) { return 180 * atan2(v.y, -v.x) / M_PI; }
+sf::Vector2f vectorOf(float angleDegrees) {
+  auto rad = angleDegrees * M_PI / 180;
+  return sf::Vector2f(sin(rad), -cos(rad));
+}
 
 struct Ant;
 
@@ -35,6 +44,11 @@ struct Environment {
   std::vector<FoodSource> food_sources;
   float pheromones[windowWidth / 4][windowHeight / 4];
 };
+
+std::ostream &operator<<(std::ostream &out, sf::Vector2f const &v) {
+  out << "(" << v.x << ", " << v.y << ")";
+  return out;
+}
 
 struct Ant {
   sf::Vector2f position;
@@ -79,6 +93,7 @@ struct Ant {
       if (std::rand() % 20 == 0) {
         // Periodically sample a new rotation
         rotation += (std::rand() % 361 - 180) / 10.0f;
+        rotation = fmodf(rotation, 180);
       }
       // Change rotation based on percieved pheromones
       // smell-distance, smell angle
@@ -86,26 +101,51 @@ struct Ant {
       // Get phermones in right-front
 
       // Look around for pheromones
+      sf::Vector2f ownDirection = vectorOf(rotation);
+      std::cerr << "own direction: " << rotation << " degrees, " << ownDirection
+                << "\n";
+      std::cerr << "recovered rotation:" << rotationDegrees(ownDirection)
+                << "\n";
+      sf::Vector2f pheromoneSum;
       for (int x = -5; x <= 5; x++) {
         for (int y = -5; y <= 5; y++) {
-          auto absX = gridX + x;
-          auto absY = gridY + y;
           if (x == 0 && y == 0) {
             continue;
           }
+
+          auto absX = gridX + x;
+          auto absY = gridY + y;
           if (absX >= 0 && absX < windowWidth / 4 && absY >= 0 &&
-              absY < windowHeight / 4 &&
-              environment.pheromones[absX][absY] > 0) {
-            std::cout << "Found pheromones at: " << absX << "," << absY << "\n";
-            // Desired rotation.
-            float desired_rotation = 180 * atan2(x, -y) / M_PI;
-            float diff = std::clamp(fmodf(desired_rotation - rotation, 180.0f),
-                                    -5.0f, 5.0f);
-            rotation += diff;
-            std::cout << "diff: " << diff << "\n";
+              absY < windowHeight / 4) {
+            // Create unit vector from x and y
+            sf::Vector2f unit(x, y);
+            unit = normalize(unit);
+
+            // Multiply vector with dot product of vector and ant direction
+            float inner_size = inner(unit, ownDirection);
+            // Ignore values behind us.
+            if (inner_size <= 0) {
+              continue;
+            }
+
+            unit *= inner_size;
+
+            // Multiply vector with peromone level
+            float pheromone_level = environment.pheromones[absX][absY];
+            unit *= pheromone_level;
+
+            // Add vector to pheromoneSum
+            pheromoneSum += unit;
           }
         }
       }
+      // Check if pheromoneSum is nonzero
+      if (pheromoneSum.x != 0.0 && pheromoneSum.y != 0.0) {
+        pheromoneSum = normalize(pheromoneSum);
+        // Create direction from pheromoneSum
+        std::cout << "Pheromone sum is: " << pheromoneSum << std::endl;
+      }
+
     }
     // Move in a straight line to the base
     else if (state == State::RETURNING) {
