@@ -5,10 +5,12 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Transform.hpp>
 #include <SFML/System/Vector2.hpp>
+#include <SFML/Window/Keyboard.hpp>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <math.h>
+#include <memory>
 
 constexpr uint32_t windowWidth = 1600;
 constexpr uint32_t windowHeight = 900;
@@ -30,7 +32,7 @@ struct Ant;
 
 struct Nest {
   sf::Vector2f position;
-  std::vector<Ant> ants;
+  std::vector<std::unique_ptr<Ant>> ants;
   int nest_size;
 };
 
@@ -63,10 +65,16 @@ struct Ant {
     RETURNING,
   } state;
 
+  Ant(sf::Vector2f position, float velocity, float rotation, int stepCounter,
+      sf::Vector2f nestPosition, float hue, State state)
+      : position(position), velocity(velocity), rotation(rotation),
+        stepCounter(stepCounter), nestPosition(nestPosition), hue(hue),
+        state(state) {}
+
   /** \brief Execute ant behavior.
    *  \note  To be called on every simulation step.
    */
-  void update(Environment &environment) {
+  virtual void update(Environment &environment) {
     int gridX = (int)floor(position.x / 4);
     int gridY = (int)floor(position.y / 4);
     // Deposit pheromones at the current position.
@@ -204,6 +212,45 @@ struct Ant {
   }
 };
 
+struct ControllableAnt : public Ant {
+  using Ant::Ant;
+
+  void update(Environment &env) override {
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
+      rotation -= 1;
+    }
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
+      rotation += 1;
+    }
+
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Up)) {
+      velocity += 0.01;
+    } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Down)) {
+      velocity -= 0.01;
+    } else if (velocity > 0) {
+      velocity *= 0.99;
+    }
+
+    // Apply velocity
+    sf::Transform antTransform;
+    antTransform.rotate(rotation);
+    position += antTransform.transformPoint(sf::Vector2f(0, -velocity));
+
+    // Don't fall off the screen
+    if (position.x < -100) {
+      position.x = windowWidth + 100;
+    } else if (position.x > windowWidth + 100) {
+      position.x = -100;
+    }
+
+    if (position.y < -100) {
+      position.y = windowHeight + 100;
+    } else if (position.y > windowHeight + 100) {
+      position.y = -100;
+    }
+  }
+};
+
 int main() {
   auto window = sf::RenderWindow{{windowWidth, windowHeight}, "Ant Academy"};
   window.setFramerateLimit(144);
@@ -322,21 +369,16 @@ int main() {
         antSpawnClock.getElapsedTime().asSeconds() > 0.5) {
       // Add a new ant.
       antSpawnClock.restart();
-      nest.ants.emplace_back(Ant{
-          .position = nest.position,
-          .rotation = float(std::rand() % 360),
-          .stepCounter = std::rand() % 63,
-          .nestPosition = nest.position,
-          .hue = float(std::rand() % 360),
-          .state = Ant::State::SEARCHING,
-      });
+      nest.ants.push_back(std::make_unique<ControllableAnt>(
+          nest.position, 0, float(std::rand() % 360), std::rand() % 63,
+          nest.position, float(std::rand() % 360), Ant::State::SEARCHING));
     }
 
     for (auto &ant : nest.ants) {
-      ant.update(environment);
+      ant->update(environment);
 
-      ant.animateStep();
-      ant.draw(window, antSprite);
+      ant->animateStep();
+      ant->draw(window, antSprite);
     }
 
     window.display();
