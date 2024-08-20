@@ -18,14 +18,15 @@ constexpr uint32_t windowHeight = 900;
 static sf::Color hsv2rgb(double hue, double sat, double val);
 
 // Vector helper functions
-float inner(sf::Vector2f v, sf::Vector2f u) { return v.x * v.x + u.y * u.y; }
+float inner(sf::Vector2f v, sf::Vector2f u) { return v.x * u.x + v.y * u.y; }
 float length(sf::Vector2f v) { return std::sqrt(inner(v, v)); }
 sf::Vector2f normalize(sf::Vector2f v) { return v / length(v); }
 // FIXME, this is broken
-float rotationDegrees(sf::Vector2f v) { return 180 * atan2(v.y, -v.x) / M_PI; }
+float rotationDegrees(sf::Vector2f v) { return 180 * atan2(v.x, -v.y) / M_PI; }
 sf::Vector2f vectorOf(float angleDegrees) {
-  auto rad = angleDegrees * M_PI / 180;
-  return sf::Vector2f(sin(rad), -cos(rad));
+  sf::Transform t;
+  t.rotate(angleDegrees);
+  return t.transformPoint(sf::Vector2f(0, -1));
 }
 
 struct Ant;
@@ -80,7 +81,7 @@ struct Ant {
     // Deposit pheromones at the current position.
     if (gridX >= 0 && gridX < windowWidth / 4 && gridY >= 0 &&
         gridY < windowHeight / 4) {
-      // environment.pheromones[gridX][gridY] += 2.0f;
+      environment.pheromones[gridX][gridY] += 2.0f;
     }
     // Random movement while searching.
     if (state == State::SEARCHING) {
@@ -109,11 +110,9 @@ struct Ant {
       // Get phermones in right-front
 
       // Look around for pheromones
-      sf::Vector2f ownDirection = vectorOf(rotation);
-      std::cerr << "own direction: " << rotation << " degrees, " << ownDirection
-                << "\n";
-      std::cerr << "recovered rotation:" << rotationDegrees(ownDirection)
-                << "\n";
+      sf::Transform antTransform;
+      antTransform.rotate(rotation);
+      auto ownDirection = antTransform.transformPoint(sf::Vector2f(0, -1));
       sf::Vector2f pheromoneSum;
       for (int x = -5; x <= 5; x++) {
         for (int y = -5; y <= 5; y++) {
@@ -152,6 +151,10 @@ struct Ant {
         pheromoneSum = normalize(pheromoneSum);
         // Create direction from pheromoneSum
         std::cout << "Pheromone sum is: " << pheromoneSum << std::endl;
+        std::cout << "Pheromone sum rotation is: "
+                  << rotationDegrees(pheromoneSum) << "\n";
+        std::cout << "Current rotation: " << rotation << "\n";
+        rotation = rotationDegrees(pheromoneSum);
       }
 
     }
@@ -215,7 +218,7 @@ struct Ant {
 struct ControllableAnt : public Ant {
   using Ant::Ant;
 
-  void update(Environment &env) override {
+  void update(Environment &environment) override {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
       rotation -= 1;
     }
@@ -247,6 +250,59 @@ struct ControllableAnt : public Ant {
       position.y = windowHeight + 100;
     } else if (position.y > windowHeight + 100) {
       position.y = -100;
+    }
+
+    {
+      // Pheromones analysis
+      int gridX = (int)floor(position.x / 4);
+      int gridY = (int)floor(position.y / 4);
+
+      sf::Transform antTransform;
+      antTransform.rotate(rotation);
+      auto ownDirection = antTransform.transformPoint(sf::Vector2f(0, -1));
+
+      sf::Vector2f pheromoneSum;
+      for (int x = -5; x <= 5; x++) {
+        for (int y = -5; y <= 5; y++) {
+          if (x == 0 && y == 0) {
+            continue;
+          }
+
+          auto absX = gridX + x;
+          auto absY = gridY + y;
+          if (absX >= 0 && absX < windowWidth / 4 && absY >= 0 &&
+              absY < windowHeight / 4) {
+            // Create unit vector from x and y
+            sf::Vector2f unit(x, y);
+            unit = normalize(unit);
+
+            // Multiply vector with dot product of vector and ant direction
+            float inner_size = inner(unit, ownDirection);
+            // Ignore values behind us.
+            if (inner_size <= 0) {
+              continue;
+            }
+
+            unit *= inner_size;
+
+            // Multiply vector with peromone level
+            float pheromone_level = environment.pheromones[absX][absY];
+            unit *= pheromone_level;
+
+            // Add vector to pheromoneSum
+            pheromoneSum += unit;
+          }
+        }
+      }
+      // Check if pheromoneSum is nonzero
+      if (pheromoneSum.x != 0.0 && pheromoneSum.y != 0.0) {
+        pheromoneSum = normalize(pheromoneSum);
+        // Create direction from pheromoneSum
+        std::cout << "Pheromone sum is: " << pheromoneSum << std::endl;
+        std::cout << "Pheromone sum rotation is: "
+                  << rotationDegrees(pheromoneSum) << "\n";
+        std::cout << "Current rotation: " << rotation << "\n";
+      }
     }
   }
 };
@@ -282,7 +338,7 @@ int main() {
   Environment environment{
       .nest{
           .position = sf::Vector2f(600, 400),
-          .nest_size = 1,
+          .nest_size = 100,
       },
       .food_sources = {FoodSource{
                            .position = sf::Vector2f(1200, 800),
@@ -336,6 +392,7 @@ int main() {
       window.draw(foodSprite);
     }
 
+    /*
     // HACK: set pheromones to a fixed value.
     for (int x = 0; x < windowWidth / 4; x++) {
       for (int y = 0; y < windowHeight / 4; y++) {
@@ -346,6 +403,7 @@ int main() {
         }
       }
     }
+    */
 
     // Evaporate & draw pheromones.
     sf::CircleShape shape(10);
@@ -369,7 +427,7 @@ int main() {
         antSpawnClock.getElapsedTime().asSeconds() > 0.5) {
       // Add a new ant.
       antSpawnClock.restart();
-      nest.ants.push_back(std::make_unique<ControllableAnt>(
+      nest.ants.push_back(std::make_unique<Ant>(
           nest.position, 0, float(std::rand() % 360), std::rand() % 63,
           nest.position, float(std::rand() % 360), Ant::State::SEARCHING));
     }
