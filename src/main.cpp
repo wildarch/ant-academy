@@ -21,7 +21,6 @@ static sf::Color hsv2rgb(double hue, double sat, double val);
 float inner(sf::Vector2f v, sf::Vector2f u) { return v.x * u.x + v.y * u.y; }
 float length(sf::Vector2f v) { return std::sqrt(inner(v, v)); }
 sf::Vector2f normalize(sf::Vector2f v) { return v / length(v); }
-// FIXME, this is broken
 float rotationDegrees(sf::Vector2f v) { return 180 * atan2(v.x, -v.y) / M_PI; }
 sf::Vector2f vectorOf(float angleDegrees) {
   sf::Transform t;
@@ -154,7 +153,10 @@ struct Ant {
         std::cout << "Pheromone sum rotation is: "
                   << rotationDegrees(pheromoneSum) << "\n";
         std::cout << "Current rotation: " << rotation << "\n";
-        rotation = rotationDegrees(pheromoneSum);
+        // rotation = rotationDegrees(pheromoneSum);
+
+        auto softTarget = ownDirection + (pheromoneSum * 0.1f);
+        rotation = rotationDegrees(softTarget);
       }
 
     }
