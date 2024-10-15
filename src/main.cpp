@@ -146,6 +146,13 @@ struct Ant {
     }
   }
 
+  void rotateTowardsNest(const Environment &environment, int chance) {
+    if (std::rand() % chance == 0) {
+      auto target = nestPosition - position;
+      rotation = rotationDegrees(target);
+    }
+  }
+
   void depositPheromone(Environment &environment) {
     int gridX = (int)floor(position.x / 4);
     int gridY = (int)floor(position.y / 4);
@@ -175,13 +182,13 @@ struct Ant {
         auto foodDistance = length(food.position - position);
         if (foodDistance < 80.0) {
           state = State::RETURNING;
-          pheromoneAvailable = 2000;
+          pheromoneAvailable = 4000;
         }
       }
 
       randomAdjustVelocity();
       randomAdjustRotation();
-      rotateTowardsPheromone(environment, 3);
+      rotateTowardsPheromone(environment, 6);
     }
     // Move in a straight line to the base
     else if (state == State::RETURNING) {
@@ -195,7 +202,8 @@ struct Ant {
 
       randomAdjustVelocity();
       randomAdjustRotation();
-      rotateTowardsPheromone(environment, 20);
+      rotateTowardsPheromone(environment, 10);
+      rotateTowardsNest(environment, 100);
       depositPheromone(environment);
     }
 
