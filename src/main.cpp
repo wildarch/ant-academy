@@ -1,13 +1,17 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Graphics/CircleShape.hpp>
 #include <SFML/Graphics/Color.hpp>
+#include <SFML/Graphics/Rect.hpp>
+#include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Transform.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Window/Keyboard.hpp>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <math.h>
 #include <memory>
@@ -41,9 +45,14 @@ struct FoodSource {
   int amount_left;
 };
 
+struct Obstacle {
+  sf::FloatRect bounds;
+};
+
 struct Environment {
   Nest nest;
   std::vector<FoodSource> food_sources;
+  std::vector<Obstacle> obstacles;
   float pheromones[windowWidth / 4][windowHeight / 4];
   int antsReturned = 0;
 };
@@ -61,6 +70,7 @@ struct Ant {
   sf::Vector2f nestPosition;
   float hue;
   int pheromoneAvailable = 0;
+  int confusion = 0;
 
   enum class State {
     SEARCHING,
@@ -85,7 +95,7 @@ struct Ant {
     if (std::rand() % 20 == 0) {
       // Periodically sample a new rotation
       rotation += (std::rand() % 361 - 180) / 10.0f;
-      rotation = fmodf(rotation, 180);
+      // rotation = fmodf(rotation, 180);
     }
   }
 
@@ -188,7 +198,10 @@ struct Ant {
 
       randomAdjustVelocity();
       randomAdjustRotation();
-      rotateTowardsPheromone(environment, 6);
+
+      if (confusion == 0) {
+        rotateTowardsPheromone(environment, 6);
+      }
     }
     // Move in a straight line to the base
     else if (state == State::RETURNING) {
@@ -202,26 +215,50 @@ struct Ant {
 
       randomAdjustVelocity();
       randomAdjustRotation();
-      rotateTowardsPheromone(environment, 10);
-      rotateTowardsNest(environment, 100);
-      depositPheromone(environment);
+      if (confusion == 0) {
+        rotateTowardsPheromone(environment, 10);
+        rotateTowardsNest(environment, 400);
+        depositPheromone(environment);
+      }
     }
 
     // Update position based on current rotation and velocity
     sf::Transform antTransform;
     antTransform.rotate(rotation);
-    position += antTransform.transformPoint(sf::Vector2f(0, -velocity));
-    if (position.x < -100) {
-      position.x = windowWidth + 100;
-    } else if (position.x > windowWidth + 100) {
-      position.x = -100;
+    auto newPosition =
+        position + antTransform.transformPoint(sf::Vector2f(0, -velocity));
+
+    bool hitObstacle = false;
+    // If we fall off the map, get confused.
+    if (newPosition.x <= 0) {
+      hitObstacle = true;
+    } else if (newPosition.x >= windowWidth) {
+      hitObstacle = true;
+    } else if (newPosition.y <= 0) {
+      // newPosition.y = windowHeight + 100;
+      hitObstacle = true;
+    } else if (newPosition.y >= windowHeight) {
+      hitObstacle = true;
+      // newPosition.y = -100;
     }
 
-    // If we fall off the map, re-appear on the other sideo.
-    if (position.y < -100) {
-      position.y = windowHeight + 100;
-    } else if (position.y > windowHeight + 100) {
-      position.y = -100;
+    // Check for collisions
+    for (auto &obs : environment.obstacles) {
+      if (obs.bounds.contains(newPosition)) {
+        hitObstacle = true;
+        break;
+      }
+    }
+
+    if (hitObstacle) {
+      // Not allowed to move here.
+      rotation += 90;
+      confusion = std::min(confusion + 100, 1000);
+    } else {
+      if (confusion > 0) {
+        confusion--;
+      }
+      position = newPosition;
     }
   }
 
@@ -363,23 +400,29 @@ int main() {
   holeSprite.setScale(2.0, 2.0);
   holeSprite.setOrigin(40, 40);
 
-  Environment environment{
-      .nest{
-          .position = sf::Vector2f(600, 400),
-          .nest_size = 100,
-      },
-      .food_sources = {FoodSource{
-                           .position = sf::Vector2f(1200, 800),
-                       },
-                       FoodSource{
-                           .position = sf::Vector2f(50, 50),
-                       },
-                       FoodSource{
-                           .position = sf::Vector2f(50, 800),
-                       },
-                       FoodSource{
-                           .position = sf::Vector2f(1200, 50),
-                       }}};
+  Environment environment{.nest{
+                              .position = sf::Vector2f(600, 400),
+                              .nest_size = 100,
+                          },
+                          .food_sources = {
+                              FoodSource{
+                                  .position = sf::Vector2f(1200, 800),
+                              },
+                              /*
+                              FoodSource{
+                                  .position = sf::Vector2f(50, 50),
+                              },
+                              FoodSource{
+                                  .position = sf::Vector2f(50, 800),
+                              },
+                              FoodSource{
+                                  .position = sf::Vector2f(1200, 50),
+                              },
+                              */
+                          }};
+  environment.obstacles.push_back(Obstacle{
+      .bounds = sf::FloatRect(400, 600, 800, 50),
+  });
 
   holeSprite.setPosition(environment.nest.position);
 
@@ -427,7 +470,7 @@ int main() {
     for (int x = 0; x < windowWidth / 4; x++) {
       for (int y = 0; y < windowHeight / 4; y++) {
         auto &amount = environment.pheromones[x][y];
-        amount *= 0.999f;
+        amount *= 0.9995f;
         if (amount < 0.5f) {
           amount = 0.0f;
         } else {
@@ -448,6 +491,15 @@ int main() {
           nest.position, float(std::rand() % 360), Ant::State::SEARCHING));
     }
 
+    // Obstacles
+    sf::RectangleShape obstacleShape;
+    for (auto &obs : environment.obstacles) {
+      obstacleShape.setSize(sf::Vector2f(obs.bounds.width, obs.bounds.height));
+      obstacleShape.setPosition(obs.bounds.left, obs.bounds.top);
+      obstacleShape.setFillColor(sf::Color::Black);
+      window.draw(obstacleShape);
+    }
+
     for (auto &ant : nest.ants) {
       ant->update(environment);
 
@@ -458,10 +510,22 @@ int main() {
     window.display();
 
     if (simulationStartClock.getElapsedTime().asSeconds() > 5.0) {
+      /*
       std::cout << "Ants returned per second: "
                 << (environment.antsReturned /
                     simulationStartClock.getElapsedTime().asSeconds())
                 << "\n";
+      */
+      int confusedAnts = 0;
+      for (auto &ant : nest.ants) {
+        assert(ant->confusion >= 0);
+        if (ant->confusion != 0) {
+          confusedAnts++;
+        }
+      }
+
+      std::cout << "Confused ants: " << confusedAnts << "\n";
+
       simulationStartClock.restart();
       environment.antsReturned = 0;
     }
