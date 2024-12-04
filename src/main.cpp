@@ -1,13 +1,17 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Graphics/CircleShape.hpp>
 #include <SFML/Graphics/Color.hpp>
+#include <SFML/Graphics/PrimitiveType.hpp>
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Graphics/RenderWindow.hpp>
+#include <SFML/Graphics/Shape.hpp>
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/Transform.hpp>
+#include <SFML/Graphics/VertexArray.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Window/Keyboard.hpp>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -49,11 +53,35 @@ struct Obstacle {
   sf::FloatRect bounds;
 };
 
+struct PheromoneMap {
+  float values[windowWidth / 4][windowHeight / 4];
+
+  void evaporate(float percentage) {
+    for (int x = 0; x < windowWidth / 4; x++) {
+      for (int y = 0; y < windowHeight / 4; y++) {
+        auto &amount = values[x][y];
+        if (amount > 100) {
+          // Cap at 100
+          amount = 100;
+        }
+
+        amount *= (1.0f - percentage);
+        if (amount < 0.5f) {
+          amount = 0.0f;
+        }
+      }
+    }
+  }
+};
+
 struct Environment {
   Nest nest;
   std::vector<FoodSource> food_sources;
   std::vector<Obstacle> obstacles;
-  float pheromones[windowWidth / 4][windowHeight / 4];
+  // Follow if looking for home, deposit if coming from home.
+  PheromoneMap homePheromone;
+  // Follow if looking for food, deposit if coming from food.
+  PheromoneMap foodPheromone;
   int antsReturned = 0;
 };
 
@@ -99,7 +127,7 @@ struct Ant {
     }
   }
 
-  void rotateTowardsPheromone(const Environment &environment, int chance) {
+  void rotateTowardsPheromone(const PheromoneMap &pheromones, int chance) {
     int gridX = (int)floor(position.x / 4);
     int gridY = (int)floor(position.y / 4);
     // Look around for pheromones
@@ -107,8 +135,8 @@ struct Ant {
     antTransform.rotate(rotation);
     auto ownDirection = antTransform.transformPoint(sf::Vector2f(0, -1));
     sf::Vector2f pheromoneSum;
-    for (int x = -5; x <= 5; x++) {
-      for (int y = -5; y <= 5; y++) {
+    for (int x = -10; x <= 10; x++) {
+      for (int y = -10; y <= 10; y++) {
         if (x == 0 && y == 0) {
           continue;
         }
@@ -131,7 +159,7 @@ struct Ant {
           unit *= inner_size;
 
           // Multiply vector with peromone level
-          float pheromone_level = environment.pheromones[absX][absY];
+          float pheromone_level = pheromones.values[absX][absY];
           unit *= pheromone_level;
 
           // Add vector to pheromoneSum
@@ -143,12 +171,6 @@ struct Ant {
     if (pheromoneSum.x != 0.0 && pheromoneSum.y != 0.0) {
       pheromoneSum = normalize(pheromoneSum);
       // Create direction from pheromoneSum
-      // std::cout << "Pheromone sum is: " << pheromoneSum << std::endl;
-      // std::cout << "Pheromone sum rotation is: "
-      //          << rotationDegrees(pheromoneSum) << "\n";
-      // std::cout << "Current rotation: " << rotation << "\n";
-      // rotation = rotationDegrees(pheromoneSum);
-
       if (std::rand() % chance == 0) {
         auto softTarget = ownDirection + (pheromoneSum * 0.2f);
         rotation = rotationDegrees(softTarget);
@@ -156,14 +178,16 @@ struct Ant {
     }
   }
 
+  /*
   void rotateTowardsNest(const Environment &environment, int chance) {
     if (std::rand() % chance == 0) {
       auto target = nestPosition - position;
       rotation = rotationDegrees(target);
     }
   }
+   */
 
-  void depositPheromone(Environment &environment) {
+  void depositPheromone(PheromoneMap &pheromones) {
     int gridX = (int)floor(position.x / 4);
     int gridY = (int)floor(position.y / 4);
 
@@ -175,7 +199,7 @@ struct Ant {
     auto amount = (pheromoneAvailable * 0.0005) + 0.01;
     if (gridX >= 0 && gridX < windowWidth / 4 && gridY >= 0 &&
         gridY < windowHeight / 4) {
-      environment.pheromones[gridX][gridY] += amount;
+      pheromones.values[gridX][gridY] += amount;
       pheromoneAvailable -= amount;
     }
   }
@@ -185,6 +209,10 @@ struct Ant {
    */
   virtual void update(Environment &environment) {
     // Random movement while searching.
+
+    // HACK: Always have pheromone
+    pheromoneAvailable = 4000;
+
     if (state == State::SEARCHING) {
       hue = 100;
       // If position is very near food source, return.
@@ -192,7 +220,8 @@ struct Ant {
         auto foodDistance = length(food.position - position);
         if (foodDistance < 80.0) {
           state = State::RETURNING;
-          pheromoneAvailable = 4000;
+          // pheromoneAvailable = 4000;
+          rotation += 180;
         }
       }
 
@@ -200,7 +229,8 @@ struct Ant {
       randomAdjustRotation();
 
       if (confusion == 0) {
-        rotateTowardsPheromone(environment, 6);
+        rotateTowardsPheromone(environment.foodPheromone, 3);
+        depositPheromone(environment.homePheromone);
       }
     }
     // Move in a straight line to the base
@@ -210,15 +240,16 @@ struct Ant {
       auto nest_dist = length(environment.nest.position - position);
       if (nest_dist < 80.0) {
         state = State::SEARCHING;
+        rotation += 180;
         environment.antsReturned++;
       }
 
       randomAdjustVelocity();
       randomAdjustRotation();
       if (confusion == 0) {
-        rotateTowardsPheromone(environment, 10);
-        rotateTowardsNest(environment, 400);
-        depositPheromone(environment);
+        rotateTowardsPheromone(environment.homePheromone, 3);
+        // rotateTowardsNest(environment, 400);
+        depositPheromone(environment.foodPheromone);
       }
     }
 
@@ -341,7 +372,8 @@ struct ControllableAnt : public Ant {
             sf::Vector2f unit(x, y);
             unit = normalize(unit);
 
-            // Multiply vector with dot product of vector and ant direction
+            // Multiply vector with dot product of vector and ant
+            // direction
             float inner_size = inner(unit, ownDirection);
             // Ignore values behind us.
             if (inner_size <= 0) {
@@ -351,7 +383,8 @@ struct ControllableAnt : public Ant {
             unit *= inner_size;
 
             // Multiply vector with peromone level
-            float pheromone_level = environment.pheromones[absX][absY];
+            float pheromone_level =
+                environment.homePheromone.values[absX][absY];
             unit *= pheromone_level;
 
             // Add vector to pheromoneSum
@@ -435,6 +468,9 @@ int main() {
   sf::Clock simulationStartClock;
   sf::Clock antSpawnClock;
 
+  std::vector<sf::Vertex> pheromoneTiles((windowWidth / 4) *
+                                         (windowHeight / 4) * 6);
+
   while (window.isOpen()) {
     for (auto event = sf::Event{}; window.pollEvent(event);) {
       if (event.type == sf::Event::Closed) {
@@ -465,21 +501,48 @@ int main() {
     }
 
     // Evaporate & draw pheromones.
-    sf::CircleShape shape(10);
-    shape.setOrigin(5, 5);
+    environment.homePheromone.evaporate(0.0009);
+    environment.foodPheromone.evaporate(0.0007);
+
+    int vidx = 0;
     for (int x = 0; x < windowWidth / 4; x++) {
       for (int y = 0; y < windowHeight / 4; y++) {
-        auto &amount = environment.pheromones[x][y];
-        amount *= 0.9995f;
-        if (amount < 0.5f) {
-          amount = 0.0f;
-        } else {
-          shape.setPosition(x * 4, y * 4);
-          shape.setFillColor(sf::Color(180, 0, 180, amount * 10));
-          window.draw(shape);
+        auto homeAmount = environment.homePheromone.values[x][y];
+        auto foodAmount = environment.foodPheromone.values[x][y];
+        if (foodAmount > 0.0f || homeAmount > 0.0f) {
+          sf::Vertex *triangles = &pheromoneTiles[vidx];
+          triangles[0].position = sf::Vector2f(x * 4, y * 4);
+          triangles[1].position = sf::Vector2f((x + 1) * 4, y * 4);
+          triangles[2].position = sf::Vector2f(x * 4, (y + 1) * 4);
+          triangles[3].position = sf::Vector2f(x * 4, (y + 1) * 4);
+          triangles[4].position = sf::Vector2f((x + 1) * 4, y * 4);
+          triangles[5].position = sf::Vector2f((x + 1) * 4, (y + 1) * 4);
+
+          sf::Color color = sf::Color(
+              fminf(255, 50 * homeAmount), fminf(255, 50 * foodAmount),
+              fminf(255, 50 * (homeAmount + foodAmount)),
+              fminf(255, 10 * fmaxf(homeAmount, foodAmount)));
+          triangles[0].color = color;
+          triangles[1].color = color;
+          triangles[2].color = color;
+          triangles[3].color = color;
+          triangles[4].color = color;
+          triangles[5].color = color;
+
+          vidx += 6;
+          // window.draw(shape);
         }
+
+        /*
+          shape.setPosition(x * 4, y * 4);
+          shape.setFillColor(sf::Color(0, 180, 180, foodAmount * 10));
+          // window.draw(shape);
+        }
+        */
       }
     }
+
+    window.draw(pheromoneTiles.data(), vidx, sf::PrimitiveType::Triangles);
 
     Nest &nest = environment.nest;
     if (nest.ants.size() < nest.nest_size &&
