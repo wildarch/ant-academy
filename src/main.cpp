@@ -60,15 +60,35 @@ struct PheromoneMap {
     for (int x = 0; x < windowWidth / 4; x++) {
       for (int y = 0; y < windowHeight / 4; y++) {
         auto &amount = values[x][y];
-        if (amount > 100) {
+        if (amount > 25) {
           // Cap at 100
-          amount = 100;
+          amount = 25;
         }
 
         amount *= (1.0f - percentage);
         if (amount < 0.5f) {
           amount = 0.0f;
         }
+      }
+    }
+  }
+
+  float blurKernel(int w, int h) {
+    float middle = 0.5 + 0.125;
+    float side = 0.125 * 0.5;
+    float diag = 0.0625 * 0.5;
+    return middle * values[w][h] + side * values[w - 1][h] +
+           side * values[w + 1][h] + side * values[w][h - 1] +
+           side * values[w][h + 1] + diag * values[w - 1][h - 1] +
+           diag * values[w - 1][h + 1] + diag * values[w + 1][h - 1] +
+           diag * values[w + 1][h + 1];
+  }
+
+  void blur() {
+    // 3x3 gaussian blur
+    for (int x = 1; x < windowWidth / 4 - 1; x++) {
+      for (int y = 1; y < windowHeight / 4 - 1; y++) {
+        values[x][y] = blurKernel(x, y);
       }
     }
   }
@@ -97,7 +117,7 @@ struct Ant {
   int stepCounter = 0;
   sf::Vector2f nestPosition;
   float hue;
-  int pheromoneAvailable = 0;
+  int pheromoneAvailable = 2000;
   int confusion = 0;
 
   enum class State {
@@ -211,16 +231,18 @@ struct Ant {
     // Random movement while searching.
 
     // HACK: Always have pheromone
-    pheromoneAvailable = 4000;
+    // pheromoneAvailable = 4000;
 
     if (state == State::SEARCHING) {
       hue = 100;
-      // If position is very near food source, return.
-      for (auto food : environment.food_sources) {
+      // If position is very near food source and there is food available,
+      // return.
+      for (auto &food : environment.food_sources) {
         auto foodDistance = length(food.position - position);
-        if (foodDistance < 80.0) {
+        if (foodDistance < 80.0 && food.amount_left > 0) {
+          food.amount_left--;
           state = State::RETURNING;
-          // pheromoneAvailable = 4000;
+          pheromoneAvailable = 2000;
           rotation += 180;
         }
       }
@@ -229,7 +251,7 @@ struct Ant {
       randomAdjustRotation();
 
       if (confusion == 0) {
-        rotateTowardsPheromone(environment.foodPheromone, 3);
+        rotateTowardsPheromone(environment.foodPheromone, 4);
         depositPheromone(environment.homePheromone);
       }
     }
@@ -240,6 +262,7 @@ struct Ant {
       auto nest_dist = length(environment.nest.position - position);
       if (nest_dist < 80.0) {
         state = State::SEARCHING;
+        pheromoneAvailable = 2000;
         rotation += 180;
         environment.antsReturned++;
       }
@@ -247,7 +270,7 @@ struct Ant {
       randomAdjustVelocity();
       randomAdjustRotation();
       if (confusion == 0) {
-        rotateTowardsPheromone(environment.homePheromone, 3);
+        rotateTowardsPheromone(environment.homePheromone, 4);
         // rotateTowardsNest(environment, 400);
         depositPheromone(environment.foodPheromone);
       }
@@ -440,6 +463,7 @@ int main() {
                           .food_sources = {
                               FoodSource{
                                   .position = sf::Vector2f(1200, 800),
+                                  .amount_left = 150,
                               },
                               /*
                               FoodSource{
@@ -467,6 +491,7 @@ int main() {
 
   sf::Clock simulationStartClock;
   sf::Clock antSpawnClock;
+  sf::Clock blurClock;
 
   std::vector<sf::Vertex> pheromoneTiles((windowWidth / 4) *
                                          (windowHeight / 4) * 6);
@@ -500,9 +525,14 @@ int main() {
       window.draw(foodSprite);
     }
 
-    // Evaporate & draw pheromones.
-    environment.homePheromone.evaporate(0.0009);
-    environment.foodPheromone.evaporate(0.0007);
+    if (blurClock.getElapsedTime().asMilliseconds() > 1000) {
+      blurClock.restart();
+      // Evaporate & draw pheromones.
+      environment.homePheromone.evaporate(0.003);
+      environment.foodPheromone.evaporate(0.002);
+      environment.homePheromone.blur();
+      environment.foodPheromone.blur();
+    }
 
     int vidx = 0;
     for (int x = 0; x < windowWidth / 4; x++) {
@@ -579,15 +609,9 @@ int main() {
                     simulationStartClock.getElapsedTime().asSeconds())
                 << "\n";
       */
-      int confusedAnts = 0;
-      for (auto &ant : nest.ants) {
-        assert(ant->confusion >= 0);
-        if (ant->confusion != 0) {
-          confusedAnts++;
-        }
+      for (auto foodsource : environment.food_sources) {
+        std::cout << "Amount left: " << foodsource.amount_left << "\n";
       }
-
-      std::cout << "Confused ants: " << confusedAnts << "\n";
 
       simulationStartClock.restart();
       environment.antsReturned = 0;
