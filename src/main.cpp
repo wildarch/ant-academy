@@ -60,9 +60,9 @@ struct PheromoneMap {
     for (int x = 0; x < windowWidth / 4; x++) {
       for (int y = 0; y < windowHeight / 4; y++) {
         auto &amount = values[x][y];
-        if (amount > 25) {
-          // Cap at 100
-          amount = 25;
+        if (amount > 15) {
+          // Cap at 15
+          amount = 15;
         }
 
         amount *= (1.0f - percentage);
@@ -307,7 +307,7 @@ struct Ant {
     if (hitObstacle) {
       // Not allowed to move here.
       rotation += 90;
-      confusion = std::min(confusion + 100, 1000);
+      confusion = std::min(confusion + 100, 500);
     } else {
       if (confusion > 0) {
         confusion--;
@@ -463,19 +463,20 @@ int main() {
                           .food_sources = {
                               FoodSource{
                                   .position = sf::Vector2f(1200, 800),
-                                  .amount_left = 150,
-                              },
-                              /*
-                              FoodSource{
-                                  .position = sf::Vector2f(50, 50),
+                                  .amount_left = 100,
                               },
                               FoodSource{
-                                  .position = sf::Vector2f(50, 800),
+                                  .position = sf::Vector2f(100, 100),
+                                  .amount_left = 100,
                               },
                               FoodSource{
-                                  .position = sf::Vector2f(1200, 50),
+                                  .position = sf::Vector2f(100, 800),
+                                  .amount_left = 0,
                               },
-                              */
+                              FoodSource{
+                                  .position = sf::Vector2f(1200, 100),
+                                  .amount_left = 0,
+                              },
                           }};
   environment.obstacles.push_back(Obstacle{
       .bounds = sf::FloatRect(400, 600, 800, 50),
@@ -492,6 +493,7 @@ int main() {
   sf::Clock simulationStartClock;
   sf::Clock antSpawnClock;
   sf::Clock blurClock;
+  sf::Clock foodSupplyClock;
 
   std::vector<sf::Vertex> pheromoneTiles((windowWidth / 4) *
                                          (windowHeight / 4) * 6);
@@ -528,10 +530,16 @@ int main() {
     if (blurClock.getElapsedTime().asMilliseconds() > 1000) {
       blurClock.restart();
       // Evaporate & draw pheromones.
-      environment.homePheromone.evaporate(0.003);
-      environment.foodPheromone.evaporate(0.002);
+      environment.homePheromone.evaporate(0.05);
+      environment.foodPheromone.evaporate(0.03);
       environment.homePheromone.blur();
       environment.foodPheromone.blur();
+    }
+
+    if (foodSupplyClock.getElapsedTime().asSeconds() > 30) {
+        foodSupplyClock.restart();
+        int source_to_supply = std::rand() % 4;
+        environment.food_sources[source_to_supply].amount_left += 10 + std::rand() % 30;
     }
 
     int vidx = 0;
